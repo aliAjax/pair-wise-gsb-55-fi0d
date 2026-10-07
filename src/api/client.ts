@@ -4,7 +4,13 @@ import axios, {
   type AxiosResponse,
 } from 'axios'
 import type { AppState } from '@/types/domain'
-import { exportSettingsText, loadState, resetState, saveState } from '@/services/storage'
+import {
+  exportSettingsText,
+  loadCheckpoint,
+  loadState,
+  resetState,
+  saveState,
+} from '@/services/storage'
 
 type MockRequest = {
   state?: AppState
@@ -22,6 +28,13 @@ function ok<T>(config: AxiosRequestConfig, data: T): AxiosResponse<T> {
   }
 }
 
+/** 演练用：置位后下一次 /state 保存必然失败，但不写入存储，用于验证检查点恢复 */
+let failNextSave = false
+
+export function armSaveFailure(): void {
+  failNextSave = true
+}
+
 const mockAdapter: AxiosAdapter = async (config) => {
   await new Promise((resolve) => window.setTimeout(resolve, 180))
   const payload = JSON.parse((config.data as string | undefined) ?? '{}') as MockRequest
@@ -29,6 +42,11 @@ const mockAdapter: AxiosAdapter = async (config) => {
     return ok(config, loadState())
   }
   if (config.url === '/state' && config.method === 'post') {
+    if (failNextSave) {
+      failNextSave = false
+      // 不调用 saveState：模拟写入中断，检查点保持为最近一次完整保存
+      throw new Error('网络中断：本次保存失败，数据未落盘（演练）')
+    }
     const next = payload.state ?? loadState()
     saveState(next)
     return ok(config, next)
@@ -40,6 +58,10 @@ const mockAdapter: AxiosAdapter = async (config) => {
   }
   if (config.url === '/actions/reset' && config.method === 'post') {
     return ok(config, resetState())
+  }
+  if (config.url === '/actions/recover' && config.method === 'post') {
+    // 从最近一次完整变更（检查点）恢复
+    return ok(config, loadCheckpoint())
   }
   if (config.url === '/actions/export' && config.method === 'post') {
     return ok(config, { content: exportSettingsText(loadState()) })
@@ -70,6 +92,11 @@ export async function patchState(patch: Partial<AppState>): Promise<AppState> {
 
 export async function resetMockState(): Promise<AppState> {
   const response = await http.post<AppState>('/actions/reset')
+  return response.data
+}
+
+export async function recoverFromCheckpoint(): Promise<AppState> {
+  const response = await http.post<AppState>('/actions/recover')
   return response.data
 }
 

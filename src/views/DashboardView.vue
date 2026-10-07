@@ -8,31 +8,13 @@ import { useAppStore } from '@/stores/app'
 
 const router = useRouter()
 const store = useAppStore()
-const { data, issues, devices, scenarios, activeBaseline } = storeToRefs(store)
+const { data, issues, devices, activeBaseline, changeOrders, pendingCount } = storeToRefs(store)
 
 const highIssues = computed(() => issues.value.filter((issue) => issue.level === 'high'))
-const runningDevices = computed(() => devices.value.filter((device) => device.status === 'running').length)
-const approvedScenarios = computed(
-  () => scenarios.value.filter((scenario) => ['approved', 'locked'].includes(scenario.status)).length,
+const issuedOrders = computed(() => changeOrders.value.filter((order) => order.status === 'issued'))
+const pendingReceipts = computed(() =>
+  issuedOrders.value.reduce((sum, order) => sum + order.items.filter((item) => !item.confirmed).length, 0),
 )
-
-const statusType = (status: string) =>
-  status === 'approved' || status === 'locked'
-    ? 'success'
-    : status === 'reviewing'
-      ? 'warning'
-      : status === 'returned'
-        ? 'danger'
-        : 'info'
-
-const statusText = (status: string) =>
-  ({
-    draft: '草稿',
-    reviewing: '会签中',
-    approved: '已批准',
-    locked: '已锁定',
-    returned: '已退回',
-  })[status] ?? status
 </script>
 
 <template>
@@ -42,7 +24,7 @@ const statusText = (status: string) =>
       description="聚焦保护配合异常、场景验证和当前可执行基线。全部数据保存在当前浏览器。"
     >
       <template #actions>
-        <el-button @click="router.push('/coordination')">进入配合校核</el-button>
+        <el-button @click="router.push('/change-orders')">定值变更单</el-button>
         <el-button type="primary" @click="router.push('/scenarios')">验证故障场景</el-button>
       </template>
     </PageHeader>
@@ -51,17 +33,17 @@ const statusText = (status: string) =>
       <div class="metric danger">
         <span>高风险问题</span>
         <strong>{{ highIssues.length }}</strong>
-        <small>需在基线锁定前关闭</small>
-      </div>
-      <div class="metric info">
-        <span>运行设备</span>
-        <strong>{{ runningDevices }} / {{ devices.length }}</strong>
-        <small>线路、变压器、母线、断路器与保护</small>
+        <small>按在途临时定值重算</small>
       </div>
       <div class="metric warning">
-        <span>已验证场景</span>
-        <strong>{{ approvedScenarios }} / {{ scenarios.length }}</strong>
-        <small>含已批准和已锁定场景</small>
+        <span>在途变更单</span>
+        <strong>{{ issuedOrders.length }}</strong>
+        <small>{{ pendingReceipts }} 份回执未确认</small>
+      </div>
+      <div class="metric info">
+        <span>待核区</span>
+        <strong>{{ pendingCount }}</strong>
+        <small>迟到/录错/旧数据回执</small>
       </div>
       <div class="metric">
         <span>当前基线</span>
@@ -86,20 +68,27 @@ const statusText = (status: string) =>
 
       <section class="panel">
         <div class="panel-title">
-          <h3>场景审校进度</h3>
-          <el-tag effect="plain">{{ scenarios.length }} 个场景</el-tag>
+          <h3>在途定值变更单</h3>
+          <el-button text type="primary" @click="router.push('/change-orders')">进入处理</el-button>
         </div>
-        <el-table :data="scenarios" max-height="320">
-          <el-table-column prop="name" label="场景" min-width="190" />
-          <el-table-column prop="operationMode" label="运行方式" width="120" />
-          <el-table-column label="状态" width="90">
+        <el-table :data="issuedOrders" max-height="320" @row-click="router.push('/change-orders')">
+          <el-table-column prop="code" label="单号" width="130" />
+          <el-table-column prop="title" label="变更单" min-width="180" />
+          <el-table-column label="方式" width="150">
             <template #default="{ row }">
-              <el-tag :type="statusType(row.status)" effect="plain">
-                {{ statusText(row.status) }}
+              <span class="muted">{{ row.modeBefore }} →</span>
+              <el-tag size="small" effect="plain">{{ row.modeAfter }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="待核" width="70">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.pendingReceipts.length ? 'danger' : 'success'" effect="plain">
+                {{ row.pendingReceipts.length }}
               </el-tag>
             </template>
           </el-table-column>
         </el-table>
+        <el-empty v-if="!issuedOrders.length" description="无在途变更单" :image-size="60" />
       </section>
     </div>
 

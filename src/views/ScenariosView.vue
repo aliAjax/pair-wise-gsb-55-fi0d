@@ -177,6 +177,24 @@ onBeforeUnmount(stopPlayback)
           </div>
         </div>
 
+        <el-alert
+          v-if="selected.needsRecheck"
+          :title="`运行方式已变更，该未批准场景需立即重算（${selected.changeOrderId ? '挂接变更单' : ''}）`"
+          :description="selected.recheckSummary ?? '动作时序与停电范围需按临时定值重新核对。'"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 12px"
+        />
+        <el-alert
+          v-else-if="selected.recomputedAt && ['draft', 'reviewing', 'returned'].includes(selected.status)"
+          title="该场景已按最新方式重算，结论为不受影响。"
+          type="success"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 12px"
+        />
+
         <el-timeline>
           <el-timeline-item
             v-for="(step, index) in selected.steps"

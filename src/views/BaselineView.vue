@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { ElMessage } from 'element-plus'
 import PageHeader from '@/components/PageHeader.vue'
 import { useAppStore } from '@/stores/app'
 import { diffSettings } from '@/services/validation'
 
+const router = useRouter()
 const store = useAppStore()
 const { data, settings } = storeToRefs(store)
 const selectedId = ref(data.value.activeBaselineId ?? data.value.baselines[0]?.id ?? '')
@@ -18,6 +20,13 @@ const diffs = computed(() => {
   if (!selected.value) return []
   return diffSettings(settings.value, selected.value.snapshot)
 })
+const sourceOrder = computed(() =>
+  selected.value?.changeOrderId
+    ? data.value.changeOrders.find((order) => order.id === selected.value?.changeOrderId)
+    : undefined,
+)
+const relayName = (relayId: string) =>
+  data.value.devices.find((device) => device.id === relayId)?.name ?? relayId
 const baselineComments = computed(() =>
   data.value.comments.filter(
     (item) => item.targetType === 'baseline' && item.targetId === selectedId.value,
@@ -140,7 +149,30 @@ async function submitComment() {
             <el-descriptions-item label="校验码">
               <span class="mono">{{ selected.checksum }}</span>
             </el-descriptions-item>
+            <el-descriptions-item v-if="sourceOrder" label="来源变更单">
+              <el-button text type="primary" @click="router.push('/change-orders')">
+                {{ sourceOrder.code }} · {{ sourceOrder.title }}
+              </el-button>
+            </el-descriptions-item>
+            <el-descriptions-item v-if="selected.originalBasis" label="原依据保留">
+              变更前 {{ selected.originalBasis.length }} 条基线定值已随版本留存
+            </el-descriptions-item>
           </el-descriptions>
+
+          <div v-if="selected.reconsideration?.length" class="panel-title" style="margin-top: 18px">
+            <h3>复议项（保留原依据）</h3>
+            <el-tag type="warning" effect="plain">{{ selected.reconsideration.length }} 项</el-tag>
+          </div>
+          <div v-for="item in selected.reconsideration ?? []" :key="item.id" class="comment-item">
+            <div class="comment-meta">
+              <strong>{{ relayName(item.relayId) }} {{ item.stage }} 段</strong>
+              <span>{{ new Date(item.createdAt).toLocaleString('zh-CN') }}</span>
+            </div>
+            <div>{{ item.reason }}</div>
+            <small class="muted">
+              保留依据：{{ item.keptValue.currentA }}A / {{ item.keptValue.timeS }}s，待回执补齐后复议。
+            </small>
+          </div>
 
           <div class="panel-title" style="margin-top: 18px">
             <h3>与当前定值差异</h3>

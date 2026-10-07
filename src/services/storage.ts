@@ -2,6 +2,24 @@ import type { AppState } from '@/types/domain'
 import { createInitialState } from '@/data/mock'
 
 const STORAGE_KEY = 'grid-protection-review-v1'
+const CHECKPOINT_KEY = 'grid-protection-review-checkpoint-v1'
+
+/** 兼容旧版本数据：补全变更单等新字段 */
+export function normalizeState(raw: unknown): AppState {
+  const state = (raw ?? {}) as Partial<AppState>
+  return {
+    devices: state.devices ?? [],
+    settings: state.settings ?? [],
+    issues: state.issues ?? [],
+    scenarios: state.scenarios ?? [],
+    baselines: state.baselines ?? [],
+    comments: state.comments ?? [],
+    audit: state.audit ?? [],
+    activeBaselineId: state.activeBaselineId,
+    changeOrders: state.changeOrders ?? [],
+    lastRecovery: state.lastRecovery,
+  }
+}
 
 export function loadState(): AppState {
   if (typeof window === 'undefined') return createInitialState()
@@ -12,7 +30,7 @@ export function loadState(): AppState {
     return initial
   }
   try {
-    return JSON.parse(raw) as AppState
+    return normalizeState(JSON.parse(raw))
   } catch {
     const initial = createInitialState()
     saveState(initial)
@@ -20,9 +38,25 @@ export function loadState(): AppState {
   }
 }
 
+/**
+ * 保存主状态，并在成功后更新检查点。
+ * 检查点始终对应最近一次完整落盘的状态，保存失败时不会被破坏。
+ */
 export function saveState(state: AppState): void {
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  window.localStorage.setItem(CHECKPOINT_KEY, JSON.stringify(state))
+}
+
+/** 从最近一次完整保存恢复 */
+export function loadCheckpoint(): AppState {
+  if (typeof window === 'undefined') return createInitialState()
+  const raw = window.localStorage.getItem(CHECKPOINT_KEY)
+  if (!raw) return loadState()
+  try {
+    return normalizeState(JSON.parse(raw))
+  } catch {
+    return loadState()
   }
 }
 

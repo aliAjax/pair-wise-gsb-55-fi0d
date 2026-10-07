@@ -4,10 +4,14 @@ import type {
   Device,
   FaultScenario,
   ProtectionSetting,
+  SettingChangeOrder,
 } from '@/types/domain'
 import { validateSettings } from '@/services/validation'
+import { revalidateEffective, MODE_PENDING } from '@/services/changeOrder'
 
 export const operationModes = ['正常方式', '单母线检修', '线路 N-1', '变压器检修']
+/** 旧单待补录时的占位运行方式，回填前不允许重算与核入 */
+export { MODE_PENDING }
 
 const devices: Device[] = [
   {
@@ -117,7 +121,7 @@ const devices: Device[] = [
     voltage: 35,
     parentId: 'bus-35-b',
     status: 'maintenance',
-    operationModes: ['正常方式', '线路 N-1'],
+    operationModes: ['正常方式', '单母线检修', '线路 N-1'],
   },
   {
     id: 'relay-l202',
@@ -128,7 +132,7 @@ const devices: Device[] = [
     voltage: 35,
     parentId: 'line-202',
     status: 'running',
-    operationModes: ['正常方式', '线路 N-1'],
+    operationModes: ['正常方式', '单母线检修', '线路 N-1'],
   },
   {
     id: 'relay-bus-a',
@@ -340,9 +344,165 @@ const audit: AuditEntry[] = [
   },
 ]
 
+function cloneSettings(source: ProtectionSetting[]): ProtectionSetting[] {
+  return source.map((setting) => ({ ...setting }))
+}
+
+function buildSeedOrders(base: ProtectionSetting[]): SettingChangeOrder[] {
+  const find = (id: string) => {
+    const setting = base.find((item) => item.id === id)
+    if (!setting) throw new Error(`缺少模拟定值 ${id}`)
+    return { ...setting }
+  }
+
+  // 一单走全流程：运行方式、定值、问题、场景、基线都挂在同一份变更上
+  const l2021Before = find('set-l202-1')
+  const l2021After: ProtectionSetting = {
+    ...l2021Before,
+    currentA: 5.2,
+    timeS: 0.5,
+    sensitivity: 1.72,
+    updatedAt: '2026-09-28T01:00:00.000Z',
+  }
+  const l2022Before = find('set-l202-2')
+  const l2022After: ProtectionSetting = {
+    ...l2022Before,
+    currentA: 2.6,
+    sensitivity: 1.12,
+    updatedAt: '2026-09-28T01:00:00.000Z',
+  }
+  const t12Before = find('set-t1-2')
+  const t12After: ProtectionSetting = {
+    ...t12Before,
+    timeS: 0.6,
+    updatedAt: '2026-09-28T01:00:00.000Z',
+  }
+
+  const mainOrder: SettingChangeOrder = {
+    id: 'order-qj-2026-001',
+    code: 'QJ-2026-D001',
+    title: '秋检单母线检修临时保护定值单',
+    reason: '东母线单母线检修，西岭 35kV 侧供电方式调整，按下发临时定值执行并回收现场回执。',
+    createdAt: '2026-09-28T00:30:00.000Z',
+    issuedAt: '2026-09-28T01:05:00.000Z',
+    status: 'issued',
+    season: '2026 秋检',
+    modeBefore: '正常方式',
+    modeAfter: '单母线检修',
+    affectedDeviceIds: ['line-202', 'bus-35-b', 'transformer-1'],
+    items: [
+      {
+        id: 'item-l202-1',
+        relayId: 'relay-l202',
+        protectedDeviceId: 'line-202',
+        stage: 'I',
+        before: l2021Before,
+        after: l2021After,
+        confirmed: true,
+        confirmedBy: 'terminal-a',
+        confirmedAt: '2026-09-28T01:40:00.000Z',
+        receiptNo: 'RC-260928-L2021-A',
+      },
+      {
+        id: 'item-l202-2',
+        relayId: 'relay-l202',
+        protectedDeviceId: 'line-202',
+        stage: 'II',
+        before: l2022Before,
+        after: l2022After,
+        confirmed: false,
+      },
+      {
+        id: 'item-t1-2',
+        relayId: 'relay-t1',
+        protectedDeviceId: 'transformer-1',
+        stage: 'II',
+        before: t12Before,
+        after: t12After,
+        confirmed: false,
+      },
+    ],
+    originalBasis: cloneSettings(base),
+    pendingReceipts: [],
+    reconsideration: [],
+  }
+
+  // 旧单补录：回执缺编号，必须先回填运行方式，再进待核区
+  const l1011Before = find('set-l101-1')
+  const l1011After: ProtectionSetting = {
+    ...l1011Before,
+    currentA: 8.1,
+    updatedAt: '2025-10-12T02:00:00.000Z',
+  }
+  const l1012Before = find('set-l101-2')
+  const l1012After: ProtectionSetting = {
+    ...l1012Before,
+    currentA: 4.4,
+    updatedAt: '2025-10-12T02:00:00.000Z',
+  }
+
+  const legacyOrder: SettingChangeOrder = {
+    id: 'order-legacy-2025-014',
+    code: 'QJ-2025-L014',
+    title: '去年秋检 101 线路定值单（旧数据补录）',
+    reason: '历史单据迁移，现场回执缺少回执编号，运行方式字段缺失。',
+    createdAt: '2025-10-12T01:30:00.000Z',
+    issuedAt: '2025-10-12T02:00:00.000Z',
+    status: 'issued',
+    season: '2025 秋检',
+    modeBefore: '正常方式',
+    modeAfter: MODE_PENDING,
+    affectedDeviceIds: ['line-101'],
+    legacyImport: true,
+    items: [
+      {
+        id: 'item-l101-1-legacy',
+        relayId: 'relay-l101',
+        protectedDeviceId: 'line-101',
+        stage: 'I',
+        before: l1011Before,
+        after: l1011After,
+        legacy: true,
+        confirmed: false,
+      },
+      {
+        id: 'item-l101-2-legacy',
+        relayId: 'relay-l101',
+        protectedDeviceId: 'line-101',
+        stage: 'II',
+        before: l1012Before,
+        after: l1012After,
+        legacy: true,
+        confirmed: false,
+      },
+    ],
+    originalBasis: cloneSettings(base),
+    pendingReceipts: [
+      {
+        id: 'pending-legacy-l1011',
+        changeItemId: 'item-l101-1-legacy',
+        relayId: 'relay-l101',
+        stage: 'I',
+        receiptNo: '',
+        channel: 'terminal-a',
+        submittedAt: '2025-10-12T03:10:00.000Z',
+        payload: { currentA: 8.1 },
+        reason: 'legacy-no-receipt',
+        detail: '旧数据迁移：回执编号缺失，须先回填运行方式后再核入。',
+        modeBackfilled: false,
+      },
+    ],
+    reconsideration: [],
+  }
+
+  return [mainOrder, legacyOrder]
+}
+
 export function createInitialState(): AppState {
-  const clonedSettings = settings.map((setting) => ({ ...setting }))
-  return {
+  const clonedSettings = cloneSettings(settings)
+  const changeOrders = buildSeedOrders(clonedSettings)
+
+  const state: AppState = {
     devices: devices.map((device) => ({ ...device, operationModes: [...device.operationModes] })),
     settings: clonedSettings,
     issues: validateSettings(clonedSettings, devices),
@@ -368,15 +528,21 @@ export function createInitialState(): AppState {
       {
         id: 'comment-1',
         targetType: 'issue',
-        targetId: 'time-inversion-set-l202-1-set-l202-2',
+        targetId: 'overreach-set-l202-2-set-t1-2',
         author: '李审',
-        content: '请核验 202 线路 I 段是否录入错误，并在回复中给出短路计算依据。',
-        createdAt: '2026-09-25T07:30:00.000Z',
+        content: '单母线检修方式下主变 II 段 0.6s 与 202 线路 II 段 0.45s 级差仅 0.15s，请给出短路计算依据。',
+        createdAt: '2026-09-28T07:30:00.000Z',
         status: 'open',
       },
     ],
     audit,
+    changeOrders,
   }
+
+  // 方式一变：未批准场景和问题立即按临时定值重算（旧单方式未回填，不参与）
+  revalidateEffective(state)
+
+  return state
 }
 
 export const issueLabels = {

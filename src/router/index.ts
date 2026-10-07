@@ -3,6 +3,7 @@ import DashboardView from '@/views/DashboardView.vue'
 import EquipmentView from '@/views/EquipmentView.vue'
 import DeviceEditorView from '@/views/DeviceEditorView.vue'
 import CoordinationView from '@/views/CoordinationView.vue'
+import ChangeOrdersView from '@/views/ChangeOrdersView.vue'
 import ScenariosView from '@/views/ScenariosView.vue'
 import BaselineView from '@/views/BaselineView.vue'
 import AuditView from '@/views/AuditView.vue'
@@ -23,6 +24,12 @@ export const router = createRouter({
       name: 'coordination',
       component: CoordinationView,
       meta: { title: '配合校核' },
+    },
+    {
+      path: '/change-orders',
+      name: 'change-orders',
+      component: ChangeOrdersView,
+      meta: { title: '定值变更单' },
     },
     {
       path: '/scenarios',

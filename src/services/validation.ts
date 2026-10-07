@@ -40,8 +40,13 @@ export function validateSettings(
     pairLabel: string,
   ) => {
     const meta = issueMeta[type]
+    // 越级类按装置+段位排序生成 id，保证同一保护对正反方向只产生一条问题
+    const idPair =
+      type === 'overreach'
+        ? [...pair].sort((a, b) => a.id.localeCompare(b.id))
+        : pair
     issues.push({
-      id: `${type}-${pair.map((item) => item.id).join('-')}`,
+      id: `${type}-${idPair.map((item) => item.id).join('-')}`,
       type,
       level: meta.level,
       deviceIds: [...new Set(pair.map((item) => item.protectedDeviceId))],
@@ -72,19 +77,39 @@ export function validateSettings(
     }
   })
 
+  // 沿设备树（含断路器等中间节点）找出相邻保护装置，只校核相邻上下级配合
+  const childrenOf = (deviceId: string) => devices.filter((device) => device.parentId === deviceId)
+  const nearestRelaysDown = (deviceId: string): Device[] => {
+    const relays: Device[] = []
+    const walk = (id: string) => {
+      childrenOf(id).forEach((child) => {
+        if (child.kind === 'relay') relays.push(child)
+        else walk(child.id)
+      })
+    }
+    walk(deviceId)
+    return relays
+  }
+
   settings.forEach((upstream) => {
     const protectedDevice = devices.find((device) => device.id === upstream.protectedDeviceId)
     if (!protectedDevice) return
-    const downstreamSettings = settings.filter((candidate) => {
-      const candidateDevice = devices.find((device) => device.id === candidate.protectedDeviceId)
-      return candidateDevice?.parentId === upstream.protectedDeviceId
-    })
+    const downstreamRelayIds = new Set(nearestRelaysDown(upstream.protectedDeviceId).map((d) => d.id))
+    const downstreamSettings = settings.filter(
+      (candidate) =>
+        downstreamRelayIds.has(candidate.relayId) &&
+        // 同串保护按段位对应校核（I 对 I、II 对 II，避免不同段误报）
+        candidate.stage === upstream.stage,
+    )
     downstreamSettings.forEach((downstream) => {
-      if (downstream.timeS <= upstream.timeS && upstream.timeS - downstream.timeS < 0.3) {
+      if (downstream.id === upstream.id) return
+      // 级差不足 0.3s 即不满足配合：上游慢于下游为越级风险，快于下游为误动/失配风险
+      const margin = upstream.timeS - downstream.timeS
+      if (Math.abs(margin) < 0.3) {
         addIssue(
           'overreach',
-          [upstream, downstream],
-          `${deviceName(devices, upstream.relayId)} 与 ${deviceName(devices, downstream.relayId)} 配合级差仅 ${(upstream.timeS - downstream.timeS).toFixed(2)}s。`,
+          margin >= 0 ? [upstream, downstream] : [downstream, upstream],
+          `${deviceName(devices, upstream.relayId)} 与 ${deviceName(devices, downstream.relayId)} ${upstream.stage} 段配合级差仅 ${Math.abs(margin).toFixed(2)}s${margin < 0 ? '，上级快于下级存在越级误动风险' : ''}。`,
           `${deviceName(devices, upstream.protectedDeviceId)} / ${deviceName(devices, downstream.protectedDeviceId)}`,
         )
       }
