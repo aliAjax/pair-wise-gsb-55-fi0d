@@ -7,13 +7,16 @@ import { useAppStore } from '@/stores/app'
 import { diffSettings } from '@/services/validation'
 
 const store = useAppStore()
-const { data, settings } = storeToRefs(store)
+const { data, settings, activeOperationMode } = storeToRefs(store)
 const selectedId = ref(data.value.activeBaselineId ?? data.value.baselines[0]?.id ?? '')
 const createDialog = ref(false)
 const baselineNote = ref('')
 const comment = ref('')
 
 const selected = computed(() => data.value.baselines.find((item) => item.id === selectedId.value))
+const openReconsiderations = computed(
+  () => selected.value?.reconsiderations.filter((item) => !item.resolved) ?? [],
+)
 const diffs = computed(() => {
   if (!selected.value) return []
   return diffSettings(settings.value, selected.value.snapshot)
@@ -55,12 +58,14 @@ async function createBaseline() {
 
 async function lockBaseline() {
   if (!selected.value) return
-  try {
-    await store.approveBaseline(selected.value.id)
-    ElMessage.success('基线已批准并锁定')
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '基线锁定失败')
-  }
+  await store.approveBaseline(selected.value.id)
+  ElMessage.success('基线已锁定：原依据保留，未闭环问题另列复议项')
+}
+
+async function resolveRecon(itemId: string) {
+  if (!selected.value) return
+  await store.resolveReconsideration(selected.value.id, itemId)
+  ElMessage.success('复议项已闭环并转回校核台')
 }
 
 async function submitComment() {
@@ -81,9 +86,10 @@ async function submitComment() {
   <div>
     <PageHeader
       title="会签与基线"
-      description="冻结已批准的定值快照；高风险问题未闭环时不允许锁定基线。"
+      description="锁定基线保留原依据快照；未闭环问题不阻断锁定，自动另列复议项随基线追踪。"
     >
       <template #actions>
+        <el-tag effect="plain" type="info">锁定方式：{{ activeOperationMode }}</el-tag>
         <el-button @click="createDialog = true">创建基线上会签</el-button>
         <el-button
           type="primary"
@@ -140,6 +146,10 @@ async function submitComment() {
             <el-descriptions-item label="校验码">
               <span class="mono">{{ selected.checksum }}</span>
             </el-descriptions-item>
+            <el-descriptions-item label="锁定运行方式">{{ selected.operationMode ?? '—' }}</el-descriptions-item>
+            <el-descriptions-item label="原依据保留说明">
+              {{ selected.originalBasisNote ?? '锁定后将自动生成原依据说明。' }}
+            </el-descriptions-item>
           </el-descriptions>
 
           <div class="panel-title" style="margin-top: 18px">
@@ -191,31 +201,45 @@ async function submitComment() {
       </section>
 
       <section class="panel">
-        <div class="panel-title"><h3>锁定条件</h3></div>
-        <div class="lock-checklist">
-          <el-checkbox :model-value="true" disabled>批量校验已执行并留痕</el-checkbox>
-          <el-checkbox :model-value="true" disabled>至少一个故障场景已完成验证</el-checkbox>
-          <el-checkbox
-            :model-value="!data.issues.some((issue) => issue.level === 'high' && issue.status !== 'closed')"
-            disabled
-          >
-            高风险问题全部关闭
-          </el-checkbox>
+        <div class="panel-title">
+          <h3>复议项（保留原依据）</h3>
+          <el-tag :type="openReconsiderations.length ? 'warning' : 'success'" effect="plain">
+            {{ openReconsiderations.length }} 项待复议
+          </el-tag>
         </div>
         <el-alert
-          v-if="data.issues.some((issue) => issue.level === 'high' && issue.status !== 'closed')"
-          title="当前存在未关闭的高风险问题，批准锁定会被系统拒绝。"
-          type="error"
+          title="锁定基线不改变定值快照与原依据；锁定时仍未闭环的问题自动列入复议项，结论形成后转回校核台。"
+          type="info"
           :closable="false"
           show-icon
+          style="margin-bottom: 10px"
         />
-        <el-alert
-          v-else
-          title="锁定条件已满足，可以执行批准并锁定。"
-          type="success"
-          :closable="false"
-          show-icon
-        />
+        <el-table :data="selected?.reconsiderations ?? []" max-height="300">
+          <el-table-column label="等级" width="70">
+            <template #default="{ row }">
+              <el-tag :type="row.level === 'high' ? 'danger' : 'warning'" effect="plain">
+                {{ row.level === 'high' ? '高' : row.level === 'medium' ? '中' : '低' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="pairLabel" label="保护对" min-width="180" />
+          <el-table-column prop="reason" label="复议原因" min-width="240" />
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.resolved ? 'success' : 'warning'" effect="plain">
+                {{ row.resolved ? '已闭环' : '待复议' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="100" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" :disabled="row.resolved" @click="resolveRecon(row.id)">
+                形成结论
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-if="!selected?.reconsiderations.length" description="该基线暂无复议项" :image-size="70" />
       </section>
     </div>
 

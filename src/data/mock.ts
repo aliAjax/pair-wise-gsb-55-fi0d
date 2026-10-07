@@ -4,10 +4,11 @@ import type {
   Device,
   FaultScenario,
   ProtectionSetting,
+  SettingChangeOrder,
 } from '@/types/domain'
 import { validateSettings } from '@/services/validation'
 
-export const operationModes = ['正常方式', '单母线检修', '线路 N-1', '变压器检修']
+export const operationModes = ['正常方式', '单母线检修', '线路 N-1', '变压器检修', '秋检临时方式']
 
 const devices: Device[] = [
   {
@@ -18,7 +19,7 @@ const devices: Device[] = [
     station: '东郊变电站',
     voltage: 110,
     status: 'running',
-    operationModes: ['正常方式', '单母线检修', '线路 N-1'],
+    operationModes: ['正常方式', '单母线检修', '线路 N-1', '秋检临时方式'],
   },
   {
     id: 'line-101',
@@ -29,7 +30,7 @@ const devices: Device[] = [
     voltage: 110,
     parentId: 'bus-110-a',
     status: 'running',
-    operationModes: ['正常方式', '线路 N-1'],
+    operationModes: ['正常方式', '线路 N-1', '秋检临时方式'],
   },
   {
     id: 'breaker-101',
@@ -40,7 +41,7 @@ const devices: Device[] = [
     voltage: 110,
     parentId: 'line-101',
     status: 'running',
-    operationModes: ['正常方式', '线路 N-1'],
+    operationModes: ['正常方式', '线路 N-1', '秋检临时方式'],
   },
   {
     id: 'relay-l101',
@@ -51,7 +52,7 @@ const devices: Device[] = [
     voltage: 110,
     parentId: 'line-101',
     status: 'running',
-    operationModes: ['正常方式', '线路 N-1'],
+    operationModes: ['正常方式', '线路 N-1', '秋检临时方式'],
   },
   {
     id: 'transformer-1',
@@ -139,10 +140,11 @@ const devices: Device[] = [
     voltage: 110,
     parentId: 'bus-110-a',
     status: 'running',
-    operationModes: ['正常方式', '单母线检修'],
+    operationModes: ['正常方式', '单母线检修', '秋检临时方式'],
   },
 ]
 
+// 旧数据：部分定值带回执编号，两份秋检现场回执晚到（receiptPending，无回执编号）
 const settings: ProtectionSetting[] = [
   {
     id: 'set-l101-1',
@@ -157,6 +159,8 @@ const settings: ProtectionSetting[] = [
     recloseDelayS: 1.2,
     startCondition: '相电流突变量启动',
     updatedAt: '2026-09-20T03:20:00.000Z',
+    basisChangeId: 'chg-legacy',
+    basisReceiptNo: 'HZ-20260920-01',
   },
   {
     id: 'set-l101-2',
@@ -171,6 +175,8 @@ const settings: ProtectionSetting[] = [
     recloseDelayS: 0,
     startCondition: '相电流越限启动',
     updatedAt: '2026-09-20T03:20:00.000Z',
+    basisChangeId: 'chg-legacy',
+    receiptPending: true,
   },
   {
     id: 'set-l201-1',
@@ -185,6 +191,8 @@ const settings: ProtectionSetting[] = [
     recloseDelayS: 1.4,
     startCondition: '相电流突变量启动',
     updatedAt: '2026-09-21T04:10:00.000Z',
+    basisChangeId: 'chg-legacy',
+    basisReceiptNo: 'HZ-20260921-07',
   },
   {
     id: 'set-l201-2',
@@ -199,6 +207,8 @@ const settings: ProtectionSetting[] = [
     recloseDelayS: 0,
     startCondition: '相电流越限启动',
     updatedAt: '2026-09-21T04:10:00.000Z',
+    basisChangeId: 'chg-legacy',
+    basisReceiptNo: 'HZ-20260921-08',
   },
   {
     id: 'set-l202-1',
@@ -213,6 +223,8 @@ const settings: ProtectionSetting[] = [
     recloseDelayS: 1.7,
     startCondition: '相电流突变量启动',
     updatedAt: '2026-09-21T04:25:00.000Z',
+    basisChangeId: 'chg-legacy',
+    basisReceiptNo: 'HZ-20260921-13',
   },
   {
     id: 'set-l202-2',
@@ -227,6 +239,8 @@ const settings: ProtectionSetting[] = [
     recloseDelayS: 0,
     startCondition: '相电流越限启动',
     updatedAt: '2026-09-21T04:25:00.000Z',
+    basisChangeId: 'chg-legacy',
+    receiptPending: true,
   },
   {
     id: 'set-t1-1',
@@ -241,6 +255,8 @@ const settings: ProtectionSetting[] = [
     recloseDelayS: 0,
     startCondition: '差流速断启动',
     updatedAt: '2026-09-22T05:00:00.000Z',
+    basisChangeId: 'chg-legacy',
+    basisReceiptNo: 'HZ-20260922-02',
   },
   {
     id: 'set-t1-2',
@@ -255,6 +271,8 @@ const settings: ProtectionSetting[] = [
     recloseDelayS: 0,
     startCondition: '相电流越限启动',
     updatedAt: '2026-09-22T05:00:00.000Z',
+    basisChangeId: 'chg-legacy',
+    basisReceiptNo: 'HZ-20260922-03',
   },
   {
     id: 'set-busa-1',
@@ -269,8 +287,86 @@ const settings: ProtectionSetting[] = [
     recloseDelayS: 1.55,
     startCondition: '母线差流启动',
     updatedAt: '2026-09-22T05:30:00.000Z',
+    basisChangeId: 'chg-legacy',
+    basisReceiptNo: 'HZ-20260922-09',
   },
 ]
+
+// 秋检临时方式变更单：已编制，待点击下发（下发即切换运行方式并立即重算）
+const autumnChange: SettingChangeOrder = {
+  id: 'chg-autumn-001',
+  code: 'SD-2026-AUTUMN-001',
+  title: '秋检临时保护定值单',
+  operationMode: '秋检临时方式',
+  previousOperationMode: '正常方式',
+  reason: '秋检期间 202 线陪停，按下发运行方式调整 101 线与东母线临时定值。',
+  createdAt: '2026-10-06T22:10:00.000Z',
+  createdBy: '方式组',
+  status: 'draft',
+  provisionalSettings: [
+    {
+      settingId: 'set-l101-1',
+      relayId: 'relay-l101',
+      protectedDeviceId: 'line-101',
+      stage: 'I',
+      currentA: 8.0,
+      timeS: 0.05,
+      direction: 'forward',
+      sensitivity: 1.86,
+      recloseEnabled: true,
+      recloseDelayS: 1.0,
+      startCondition: '相电流突变量启动',
+    },
+    {
+      settingId: 'set-l101-2',
+      relayId: 'relay-l101',
+      protectedDeviceId: 'line-101',
+      stage: 'II',
+      currentA: 4.4,
+      timeS: 0.6,
+      direction: 'forward',
+      sensitivity: 1.24,
+      recloseEnabled: false,
+      recloseDelayS: 0,
+      startCondition: '相电流越限启动',
+    },
+    {
+      settingId: 'set-busa-1',
+      relayId: 'relay-bus-a',
+      protectedDeviceId: 'bus-110-a',
+      stage: 'I',
+      currentA: 9.1,
+      timeS: 0.12,
+      direction: 'non-directional',
+      sensitivity: 1.94,
+      recloseEnabled: true,
+      recloseDelayS: 1.55,
+      startCondition: '母线差流启动',
+    },
+  ],
+  receipts: [],
+  confirmedOrder: [],
+  notes: '现场按运行方式先执行临时定值，回执到达后逐台确认；两台终端同交一份回执时先到先确认。',
+}
+
+// 旧数据对应一张已应用的变更单，便于回填运行方式
+const legacyChange: SettingChangeOrder = {
+  id: 'chg-legacy',
+  code: 'SD-2026-BASE',
+  title: '秋检前正式定值导入',
+  operationMode: '正常方式',
+  previousOperationMode: '正常方式',
+  reason: '秋检初始方案导入',
+  createdAt: '2026-09-20T01:00:00.000Z',
+  issuedAt: '2026-09-20T01:00:00.000Z',
+  appliedAt: '2026-09-22T06:00:00.000Z',
+  createdBy: '陈工',
+  status: 'applied',
+  provisionalSettings: [],
+  receipts: [],
+  confirmedOrder: [],
+  notes: 'LEGACY: 历史导入数据，部分回执编号缺失，先回填运行方式再转待核。',
+}
 
 const scenarios: FaultScenario[] = [
   {
@@ -288,6 +384,8 @@ const scenarios: FaultScenario[] = [
     outageDevices: ['line-101'],
     createdAt: '2026-09-23T02:00:00.000Z',
     notes: '近端永久故障未导致上级母线失电。',
+    basisChangeId: 'chg-legacy',
+    basisOperationMode: '正常方式',
   },
   {
     id: 'sc-202-mode-b',
@@ -327,7 +425,7 @@ const audit: AuditEntry[] = [
     action: '导入定值',
     target: '2026 秋检初始方案',
     operator: '陈工',
-    detail: '导入 12 台设备、9 份保护定值。',
+    detail: '导入 12 台设备、9 份保护定值，其中 2 份现场回执晚到待核。',
     createdAt: '2026-09-25T00:30:00.000Z',
   },
   {
@@ -335,17 +433,31 @@ const audit: AuditEntry[] = [
     action: '场景审批',
     target: '101 线路近端永久故障',
     operator: '李审',
-    detail: '动作序列与停电范围已确认。',
+    detail: '动作序列与停电范围已确认，依据正常方式锁定。',
     createdAt: '2026-09-25T02:10:00.000Z',
+  },
+  {
+    id: 'audit-3',
+    action: '编制定值变更单',
+    target: 'SD-2026-AUTUMN-001',
+    operator: '方式组',
+    detail: '秋检临时方式变更单已编制，含 3 份临时定值，等待下发并切换运行方式。',
+    createdAt: '2026-10-06T22:30:00.000Z',
   },
 ]
 
 export function createInitialState(): AppState {
   const clonedSettings = settings.map((setting) => ({ ...setting }))
+  const issues = validateSettings(clonedSettings, devices, '正常方式').map((issue) => {
+    if (issue.settingIds.some((id) => clonedSettings.find((s) => s.id === id)?.receiptPending)) {
+      return { ...issue, stale: true }
+    }
+    return issue
+  })
   return {
     devices: devices.map((device) => ({ ...device, operationModes: [...device.operationModes] })),
     settings: clonedSettings,
-    issues: validateSettings(clonedSettings, devices),
+    issues,
     scenarios: scenarios.map((scenario) => ({
       ...scenario,
       steps: scenario.steps.map((step) => ({ ...step })),
@@ -362,6 +474,10 @@ export function createInitialState(): AppState {
         note: '秋检前正式运行定值',
         snapshot: clonedSettings.map((setting) => ({ ...setting, currentA: setting.currentA + 0.1 })),
         checksum: 'A5F1-927C',
+        changeId: 'chg-legacy',
+        operationMode: '正常方式',
+        originalBasisNote: '依据正常方式与正式回执编号锁定，原短路计算书归档号 JS-2026-09。',
+        reconsiderations: [],
       },
     ],
     comments: [
@@ -376,6 +492,15 @@ export function createInitialState(): AppState {
       },
     ],
     audit,
+    activeBaselineId: 'baseline-1',
+    changeOrders: [autumnChange, legacyChange].map((order) => ({
+      ...order,
+      provisionalSettings: order.provisionalSettings.map((setting) => ({ ...setting })),
+      receipts: order.receipts.map((receipt) => ({ ...receipt, values: { ...receipt.values } })),
+      confirmedOrder: [...order.confirmedOrder],
+    })),
+    pendingReceipts: [],
+    activeOperationMode: '正常方式',
   }
 }
 

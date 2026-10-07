@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 18455",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 18455"
+    "preview": "vite preview --host 0.0.0.0 --port 18455",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "2.3.1",

@@ -11,7 +11,7 @@ import type { ValidationIssue } from '@/types/domain'
 
 const route = useRoute()
 const store = useAppStore()
-const { data, devices, settings, issues } = storeToRefs(store)
+const { data, devices, settings, issues, activeOperationMode, activeChange } = storeToRefs(store)
 const typeFilter = ref<ValidationIssue['type'] | ''>('')
 const levelFilter = ref<ValidationIssue['level'] | ''>('')
 const statusFilter = ref<ValidationIssue['status'] | ''>('')
@@ -19,6 +19,12 @@ const selected = ref<ValidationIssue>()
 const reply = ref('')
 const validating = ref(false)
 const deviceFilter = ref(typeof route.query.device === 'string' ? route.query.device : '')
+
+const staleIssues = computed(() => issues.value.filter((issue) => issue.stale))
+const pendingBasisSettings = computed(() => settings.value.filter((setting) => setting.receiptPending))
+const selectedMissingReceipt = computed(() =>
+  pendingBasisSettings.value.some((setting) => selected.value?.settingIds.includes(setting.id)),
+)
 
 const filtered = computed(() =>
   issues.value.filter((issue) => {
@@ -55,7 +61,7 @@ async function runValidation() {
   try {
     const result = await store.runValidation()
     selected.value = result[0]
-    ElMessage.success(`批量校验完成，共发现 ${result.length} 条问题`)
+    ElMessage.success(`按「${activeOperationMode.value}」重算完成，共发现 ${result.length} 条问题`)
   } finally {
     validating.value = false
   }
@@ -69,8 +75,19 @@ async function markReplying() {
 
 async function closeIssue() {
   if (!selected.value) return
+  if (selectedMissingReceipt.value) {
+    ElMessage.error('相关定值缺少现场回执编号，不得按旧定值签字关闭；请到「定值变更与回执」待核区补齐。')
+    return
+  }
   await store.updateIssue({ ...selected.value, status: 'closed' })
-  ElMessage.success('问题已关闭，关闭动作已记录审计')
+  ElMessage.success('问题已签字关闭，关闭动作已记录审计')
+}
+
+/** 方式重算后人工确认：该问题在新方式下结论仍然成立 */
+async function acknowledgeStale() {
+  if (!selected.value) return
+  await store.updateIssue({ ...selected.value, stale: false })
+  ElMessage.success('已确认该问题在当前运行方式下的重算结论')
 }
 
 async function submitReply() {
@@ -92,13 +109,32 @@ async function submitReply() {
   <div>
     <PageHeader
       title="保护配合校核"
-      description="按保护对检查越级跳闸、时限倒挂、灵敏度不足和重合逻辑冲突，并给出可追溯处理意见。"
+      description="按保护对检查越级跳闸、时限倒挂、灵敏度不足和重合逻辑冲突；运行方式一变，问题立即按新方式重算。"
     >
       <template #actions>
+        <el-tag effect="plain" type="info">校核方式：{{ activeOperationMode }}</el-tag>
+        <el-tag v-if="activeChange" effect="plain" type="primary">{{ activeChange.code }}</el-tag>
         <el-button @click="deviceFilter = ''">清除设备定位</el-button>
-        <el-button type="primary" :loading="validating" @click="runValidation">批量校验</el-button>
+        <el-button type="primary" :loading="validating" @click="runValidation">按当前方式重算</el-button>
       </template>
     </PageHeader>
+
+    <el-alert
+      v-if="staleIssues.length"
+      :title="`运行方式已切换，${staleIssues.length} 条问题为新方式重算结果，请逐条确认后再签字。`"
+      type="warning"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 12px"
+    />
+    <el-alert
+      v-if="pendingBasisSettings.length"
+      :title="`${pendingBasisSettings.length} 份定值缺少现场回执编号，审校台不得按这些旧定值签字；请到「定值变更与回执」先回填运行方式并补录回执。`"
+      type="error"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 12px"
+    />
 
     <div class="toolbar">
       <el-select v-model="deviceFilter" clearable placeholder="定位设备" style="width: 220px">
@@ -146,7 +182,10 @@ async function submitReply() {
               :class="issue.level"
             />
             <span>
-              <strong>{{ issue.pairLabel }}</strong>
+              <strong>
+                {{ issue.pairLabel }}
+                <el-tag v-if="issue.stale" size="small" type="warning" effect="dark">方式重算待确认</el-tag>
+              </strong>
               <small>{{ issue.message }}</small>
             </span>
           </button>
@@ -171,6 +210,25 @@ async function submitReply() {
             :closable="false"
             show-icon
           />
+          <el-alert
+            v-if="selected.stale"
+            title="该问题随运行方式切换已立即重算，结论需要在新方式下重新确认后方可关闭。"
+            type="warning"
+            :closable="false"
+            show-icon
+            style="margin-top: 10px"
+          />
+          <el-alert
+            v-if="selectedMissingReceipt"
+            title="关联定值缺少现场回执编号（旧数据待核），审校台不允许按旧定值签字。"
+            type="error"
+            :closable="false"
+            show-icon
+            style="margin-top: 10px"
+          />
+          <p class="muted" style="margin-top: 8px">
+            重算方式：{{ selected.operationMode ?? '—' }}
+          </p>
           <div class="panel-title" style="margin-top: 18px">
             <h3>动作特性定位</h3>
           </div>
@@ -179,9 +237,16 @@ async function submitReply() {
             :selected-relay-id="selectedSetting?.relayId"
           />
           <div class="timeline-actions" style="margin-top: 14px">
+            <el-button v-if="selected.stale" type="warning" @click="acknowledgeStale">
+              确认新方式重算结论
+            </el-button>
             <el-button :disabled="selected.status === 'closed'" @click="markReplying">进入意见回复</el-button>
-            <el-button type="success" :disabled="selected.status === 'closed'" @click="closeIssue">
-              关闭问题
+            <el-button
+              type="success"
+              :disabled="selected.status === 'closed' || selected.stale || selectedMissingReceipt"
+              @click="closeIssue"
+            >
+              关闭并签字
             </el-button>
           </div>
         </template>

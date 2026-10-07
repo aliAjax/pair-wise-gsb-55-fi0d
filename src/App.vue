@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { DataLine, DocumentChecked, Files, Operation, SetUp, Tickets } from '@element-plus/icons-vue'
+import { storeToRefs } from 'pinia'
+import { DataLine, DocumentChecked, Files, Operation, SetUp, Tickets, Switch } from '@element-plus/icons-vue'
 import { useAppStateQuery } from '@/api/queries'
 import { useAppStore } from '@/stores/app'
 
 const route = useRoute()
 const store = useAppStore()
 const { data, isLoading, isError, error } = useAppStateQuery()
+const { activeOperationMode, pendingReceipts, failedSession } = storeToRefs(store)
 
 watch(
   data,
@@ -21,6 +23,7 @@ const title = computed(() => String(route.meta.title ?? '工作台'))
 const menuItems = [
   { path: '/', label: '运行总览', icon: DataLine },
   { path: '/devices', label: '设备台账', icon: Files },
+  { path: '/changes', label: '定值变更与回执', icon: Switch },
   { path: '/coordination', label: '配合校核', icon: DocumentChecked },
   { path: '/scenarios', label: '故障场景', icon: Operation },
   { path: '/baseline', label: '会签与基线', icon: Tickets },
@@ -66,6 +69,11 @@ const menuItems = [
           <h1>{{ title }}</h1>
         </div>
         <div class="header-actions">
+          <el-tag effect="plain" type="info">方式：{{ activeOperationMode }}</el-tag>
+          <el-tag v-if="pendingReceipts.length" effect="plain" type="warning">
+            待核 {{ pendingReceipts.length }}
+          </el-tag>
+          <el-tag v-if="failedSession" effect="plain" type="danger">有失败待恢复</el-tag>
           <el-tag v-if="store.saving" type="warning">正在保存</el-tag>
           <el-tag v-else type="success">数据已持久化</el-tag>
           <el-avatar :size="32">陈</el-avatar>

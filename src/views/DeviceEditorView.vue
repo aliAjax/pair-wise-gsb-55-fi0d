@@ -221,6 +221,12 @@ async function saveSetting() {
           </template>
         </el-table-column>
         <el-table-column prop="startCondition" label="启动条件" min-width="170" />
+        <el-table-column label="回执依据" width="150">
+          <template #default="{ row }">
+            <el-tag v-if="row.receiptPending" type="danger" effect="plain">缺编号·待核</el-tag>
+            <el-tag v-else type="success" effect="plain">{{ row.basisReceiptNo ?? '已确认' }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="90" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openSetting(row)">编辑</el-button>

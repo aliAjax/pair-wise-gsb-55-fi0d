@@ -8,13 +8,15 @@ import { operationModes } from '@/data/mock'
 import type { ReviewStatus } from '@/types/domain'
 
 const store = useAppStore()
-const { devices, scenarios } = storeToRefs(store)
+const { devices, scenarios, activeOperationMode } = storeToRefs(store)
 const selectedId = ref(scenarios.value[0]?.id ?? '')
 const compareId = ref(scenarios.value[1]?.id ?? '')
 const playbackIndex = ref(-1)
 const playing = ref(false)
 const createDialog = ref(false)
 let playbackTimer: number | undefined
+
+const staleScenarios = computed(() => scenarios.value.filter((scenario) => scenario.stale))
 
 const form = reactive({
   name: '',
@@ -91,8 +93,18 @@ function replay() {
 
 async function changeStatus(status: ReviewStatus) {
   if (!selected.value) return
+  if (status === 'approved' && selected.value.stale) {
+    ElMessage.error('该场景随方式变化已重算，需先在当前方式下确认动作序列与停电范围。')
+    return
+  }
   await store.updateScenarioStatus(selected.value.id, status)
   ElMessage.success(`场景状态已更新为${statusText(status)}`)
+}
+
+async function acknowledgeScenario() {
+  if (!selected.value) return
+  await store.acknowledgeScenarioRecalc(selected.value.id)
+  ElMessage.success('已确认新方式下的场景结论')
 }
 
 async function createScenario() {
@@ -128,13 +140,23 @@ onBeforeUnmount(stopPlayback)
   <div>
     <PageHeader
       title="运行方式与故障场景"
-      description="建立多个运行方式和故障场景，比较保护动作顺序与停电范围，并逐场景完善动作序列。"
+      description="方式一变，未批准场景立即按新方式重算；已批准/锁定场景保留原依据，不随方式改动。"
     >
       <template #actions>
+        <el-tag effect="plain" type="info">当前方式：{{ activeOperationMode }}</el-tag>
         <el-button :disabled="!selected || playing" @click="replay">异常场景回放</el-button>
         <el-button type="primary" @click="createDialog = true">新建场景</el-button>
       </template>
     </PageHeader>
+
+    <el-alert
+      v-if="staleScenarios.length"
+      :title="`${staleScenarios.length} 个未批准场景随运行方式切换已重算，请在当前方式下复核后再提交/批准。`"
+      type="warning"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 12px"
+    />
 
     <div class="toolbar">
       <el-select v-model="selectedId" placeholder="选择场景" style="width: 330px">
@@ -159,23 +181,51 @@ onBeforeUnmount(stopPlayback)
       <section class="panel">
         <div class="panel-title">
           <div>
-            <h3>{{ selected.name }}</h3>
+            <h3>
+              {{ selected.name }}
+              <el-tag v-if="selected.stale" type="warning" effect="dark" size="small">方式变化·已重算待复核</el-tag>
+            </h3>
             <span class="muted">{{ selected.operationMode }} · {{ selected.faultType }}</span>
           </div>
           <div>
             <el-button
+              v-if="selected.stale"
+              type="warning"
+              @click="acknowledgeScenario"
+            >
+              当前方式复核通过
+            </el-button>
+            <el-button
               v-if="selected.status === 'draft' || selected.status === 'returned'"
               type="primary"
+              :disabled="selected.stale"
               @click="changeStatus('reviewing')"
             >
               提交会签
             </el-button>
             <template v-if="selected.status === 'reviewing'">
-              <el-button type="success" @click="changeStatus('approved')">批准场景</el-button>
+              <el-button type="success" :disabled="selected.stale" @click="changeStatus('approved')">批准场景</el-button>
               <el-button type="danger" plain @click="changeStatus('returned')">退回补充</el-button>
             </template>
           </div>
         </div>
+
+        <el-alert
+          v-if="selected.status === 'approved' || selected.status === 'locked'"
+          :title="`已批准场景保留原依据：${selected.basisOperationMode ?? selected.operationMode}，不随后续方式变化重算。`"
+          type="success"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 10px"
+        />
+        <el-alert
+          v-if="selected.recalcNote"
+          :title="selected.recalcNote"
+          :type="selected.stale ? 'warning' : 'info'"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 10px"
+        />
 
         <el-timeline>
           <el-timeline-item

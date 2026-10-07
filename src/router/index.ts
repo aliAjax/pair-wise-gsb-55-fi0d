@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import DashboardView from '@/views/DashboardView.vue'
 import EquipmentView from '@/views/EquipmentView.vue'
 import DeviceEditorView from '@/views/DeviceEditorView.vue'
+import ChangeOrdersView from '@/views/ChangeOrdersView.vue'
 import CoordinationView from '@/views/CoordinationView.vue'
 import ScenariosView from '@/views/ScenariosView.vue'
 import BaselineView from '@/views/BaselineView.vue'
@@ -23,6 +24,12 @@ export const router = createRouter({
       name: 'coordination',
       component: CoordinationView,
       meta: { title: '配合校核' },
+    },
+    {
+      path: '/changes',
+      name: 'changes',
+      component: ChangeOrdersView,
+      meta: { title: '定值变更与回执' },
     },
     {
       path: '/scenarios',

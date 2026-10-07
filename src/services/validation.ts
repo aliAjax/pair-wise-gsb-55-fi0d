@@ -30,7 +30,15 @@ const deviceName = (devices: Device[], id: string) =>
 export function validateSettings(
   settings: ProtectionSetting[],
   devices: Device[],
+  operationMode?: string,
 ): ValidationIssue[] {
+  // 按运行方式重算时，仅纳入该方式下仍在运的保护装置
+  const scopedSettings = operationMode
+    ? settings.filter((setting) => {
+        const relay = devices.find((device) => device.id === setting.relayId)
+        return relay?.status === 'running' && relay.operationModes.includes(operationMode)
+      })
+    : settings
   const issues: ValidationIssue[] = []
   const now = new Date().toISOString()
   const addIssue = (
@@ -51,12 +59,13 @@ export function validateSettings(
       pairLabel,
       status: 'open',
       createdAt: now,
+      operationMode,
     })
   }
 
-  settings.forEach((setting) => {
+  scopedSettings.forEach((setting) => {
     const stageOrder = { I: 1, II: 2, III: 3 }
-    const slowerStage = settings.find(
+    const slowerStage = scopedSettings.find(
       (candidate) =>
         candidate.relayId === setting.relayId &&
         stageOrder[candidate.stage] > stageOrder[setting.stage] &&
@@ -72,10 +81,10 @@ export function validateSettings(
     }
   })
 
-  settings.forEach((upstream) => {
+  scopedSettings.forEach((upstream) => {
     const protectedDevice = devices.find((device) => device.id === upstream.protectedDeviceId)
     if (!protectedDevice) return
-    const downstreamSettings = settings.filter((candidate) => {
+    const downstreamSettings = scopedSettings.filter((candidate) => {
       const candidateDevice = devices.find((device) => device.id === candidate.protectedDeviceId)
       return candidateDevice?.parentId === upstream.protectedDeviceId
     })
@@ -91,7 +100,7 @@ export function validateSettings(
     })
   })
 
-  settings
+  scopedSettings
     .filter((setting) => setting.sensitivity < 1.2)
     .forEach((setting) => {
       addIssue(
@@ -102,7 +111,7 @@ export function validateSettings(
       )
     })
 
-  const activeReclosers = settings.filter((setting) => setting.recloseEnabled)
+  const activeReclosers = scopedSettings.filter((setting) => setting.recloseEnabled)
   activeReclosers.forEach((setting, index) => {
     activeReclosers.slice(index + 1).forEach((candidate) => {
       if (
@@ -121,7 +130,7 @@ export function validateSettings(
 
   const unique = new Map<string, ValidationIssue>()
   issues.forEach((issue) => unique.set(issue.id, issue))
-  return [...unique.values()]
+  return [...unique.values()].map((issue) => ({ ...issue, operationMode }))
 }
 
 export function diffSettings(
